@@ -1,0 +1,203 @@
+# Energy consumption regression model
+# Goal: Predict average moving average energy consumption gor the next 24 hours.
+
+# Step 1: Importing packages.
+import pandas as pd
+import numpy as np
+import matplotlib
+matplotlib.use("TkAgg")
+import matplotlib.pyplot as plt
+from sklearn.linear_model import Ridge
+from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.model_selection import TimeSeriesSplit
+from sklearn.preprocessing import StandardScaler
+
+# Step 2: Loading dataset.
+df_energy = pd.read_csv("data/energy_consumption.csv")
+
+# Step 3: Data cleaning.
+energy = df_energy.copy()
+
+energy.rename(columns=lambda x: x.strip().lower().replace(" ", "_"), inplace=True)
+
+energy['date'] = pd.to_datetime(energy['timestamp'])
+
+energy = energy.sort_values('date')
+
+energy = energy.drop(columns=['timestamp'])
+
+energy['holiday'] = energy['holiday'].map({'Yes': True, 'No': False})
+
+energy['holiday'] = energy['holiday'].astype(int)
+
+energy['hvacusage'] = energy['hvacusage'].map({'On': 1, 'Off': 0})
+
+energy['lightingusage'] = energy['lightingusage'].map({'On': 1, 'Off': 0})
+
+energy['dayofweek'] = energy['dayofweek'].map({'Sunday': 0, 'Monday': 1, 'Tuesday': 2, 'Wednesday': 3, 'Thursday': 4, 'Friday': 5, 'Saturday': 6})
+
+energy['dayofweek'] = energy['dayofweek'].astype(int)
+
+# Step 4: Feature engineering.
+energy['hour'] = energy['date'].dt.hour
+
+energy['day_of_year'] = energy['date'].dt.dayofyear
+
+energy['month'] = energy['date'].dt.month
+
+energy['doy_sin'] = np.sin(2 * np.pi * energy['day_of_year'] / 365)
+
+energy['dow_sin'] = np.sin(2 * np.pi * energy['dayofweek'] / 7)
+
+energy['hour_sin'] = np.sin(2 * np.pi * energy['hour'] / 24)
+
+energy['hour_cos'] = np.cos(2 * np.pi * energy['hour'] / 24)
+
+energy['rolling_24_hour_average'] = energy['energyconsumption'].rolling(24).mean().shift(1)
+
+energy['rolling_24_hour_std'] = energy['energyconsumption'].rolling(24).std().shift(1)
+
+energy['rolling_7_hour_std'] = energy['energyconsumption'].rolling(7).std().shift(1)
+
+energy['squarefootage_log'] = np.log1p(energy['squarefootage'])
+
+energy['energy_pct_change'] = energy['energyconsumption'].pct_change()
+
+energy['lag_7_pct_change'] = energy['energy_pct_change'].shift(7)
+
+energy['lag_24_pct_change'] = energy['energy_pct_change'].shift(24)
+
+energy['temp_pct_change'] = energy['temperature'].pct_change()
+
+energy['lag_7_temp_pct_change'] = energy['temp_pct_change'].shift(7)
+
+energy['lag_24_temp_pct_change'] = energy['temp_pct_change'].shift(24)
+
+energy['rolling_7hour_std_temp_pct_change'] = energy['temp_pct_change'].rolling(7).std().shift(1)
+
+energy['week_of_year'] = energy['date'].dt.isocalendar().week
+
+energy['woy_sin'] = np.sin(2 * np.pi * energy['week_of_year'] / 52)
+
+energy['woy_cos'] = np.cos(2 * np.pi * energy['week_of_year'] / 52)
+
+energy['humidity_pct_change'] = energy['humidity'].pct_change()
+
+energy['std_energy_consumption'] = energy['energyconsumption'].expanding().std().reset_index(drop=True)
+
+energy['mean_energy_consumption'] = energy['energyconsumption'].expanding().mean().reset_index(drop=True)
+
+energy['std_temp'] = energy['temperature'].expanding().std().reset_index(drop=True)
+
+energy['mean_temp'] = energy['temperature'].expanding().mean().reset_index(drop=True)
+
+# Step 5: Setting the target, we want to predict the next 24 hour moving average energy consumption.
+# The results will tell us if the model catches any trends and patterns using my features.
+energy['next_24hour_avg'] = energy['energyconsumption'].shift(-1).rolling(24).mean()
+
+target = energy['next_24hour_avg']
+
+# I drop unimportant features to simplify the model.
+features = energy.drop(columns=
+    ['temp_pct_change', 'week_of_year', 'holiday', 
+     'occupancy', 'squarefootage', 'lightingusage', 
+     'humidity', 'renewableenergy', 'next_24hour_avg', 
+     'day_of_year', 'date', 'hour', 'month']
+)
+
+x = features
+
+y_regression = target 
+
+mask = x.notna().all(axis=1) & y_regression.notna()
+
+x = x[mask]
+
+y_regression = y_regression[mask]
+
+# Step 6: Model training.
+tscv = TimeSeriesSplit(n_splits=4)
+
+mse_scores = []
+r2_scores = []
+coefficients_lst = []
+
+for train_index, test_index in tscv.split(x):
+    x_train = x.iloc[train_index]
+    x_test = x.iloc[test_index]
+
+    y_train = y_regression.iloc[train_index]
+    y_test = y_regression.iloc[test_index]
+
+    scaler = StandardScaler()
+    x_train_scaled = scaler.fit_transform(x_train)
+    x_test_scaled = scaler.transform(x_test)
+    
+    model = Ridge(alpha=5)
+    model.fit(x_train_scaled, y_train)
+    y_pred = model.predict(x_test_scaled)
+
+    mse = mean_squared_error(y_test, y_pred)
+    r2 = r2_score(y_test, y_pred)
+    coefficients = pd.Series(model.coef_, index=x_train.columns).sort_values(key=abs, ascending=False)
+    
+    mse_scores.append(mse)
+    r2_scores.append(r2)
+    coefficients_lst.append(coefficients)
+
+print(f"\nmse per fold:", mse_scores)
+print(f"\nr2 per fold:", r2_scores)
+     
+print(f"\nAverage mse score:", np.mean(mse).round(6))
+print(f"\nAverage r2 score:", np.mean(r2).round(2))
+print(f"\nCoefficients:\n", f"\n{coefficients_lst[-1]}")
+
+# Stability score across folds.
+
+coef_matrix = pd.DataFrame(coefficients_lst)
+
+coef_mean = coef_matrix.mean()
+
+coef_std = coef_matrix.std()
+
+stability_score = abs(coef_mean) / coef_std
+
+print(f"\nStability score:\n", f"\n{stability_score}")
+
+# Step 7: Visualizing Actual vs Predicted results.
+plt.figure(figsize=(12, 6))
+
+plt.plot(y_test.values, label='actual', color='blue', linewidth=3)
+plt.plot(y_pred, label='predicted', color='red', linestyle='--')
+plt.legend()
+plt.grid(axis='y')
+
+plt.show()
+
+# Step 8: Residual plot. (Actual - Predicted)
+residuals = y_test - y_pred
+
+plt.figure(figsize=(12, 5))
+
+plt.plot(residuals)
+plt.axhline(0, color="red", linestyle="--")
+
+plt.title("Residuals Over Time")
+plt.xlabel("Time Index")
+plt.ylabel("Residual (error)")
+plt.grid(True)
+
+plt.show()
+
+# Step 9: Most important coefficients visualization.
+
+plt.figure(figsize=(16, 8))
+
+coefficients.head(15).plot(kind="barh")
+
+plt.title("Top 15 most important coefficients")
+plt.xlabel("Absolute Coefficients Value")
+plt.gca().invert_yaxis()
+plt.grid(axis='y')
+
+plt.show()

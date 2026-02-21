@@ -1,4 +1,4 @@
-#!/home/kacper/appl_stock_performance_ML/venv/bin/python3
+#!/home/kacper/energy_consumption_regression_ML/venv/bin/python3
 # -*- coding: utf-8 -*-
 import re
 import sys
