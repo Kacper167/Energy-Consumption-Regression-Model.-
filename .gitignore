@@ -1,6 +1,15 @@
-__pycache__/
-*.pyc
-.env
-.venv/
+# Python virtual environments
+venv/
+.env/
+
+# Jupyter Notebook checkpoints
 .ipynb_checkpoints/
 
+# OS/system files
+.DS_Store
+Thumbs.db
+
+# Python compiled files
+__pycache__/
+*.pyc
+*.pyo
