@@ -148,8 +148,8 @@ for train_index, test_index in tscv.split(x):
 print(f"\nmse per fold:", mse_scores)
 print(f"\nr2 per fold:", r2_scores)
      
-print(f"\nAverage mse score:", np.mean(mse).round(6))
-print(f"\nAverage r2 score:", np.mean(r2).round(2))
+print(f"\nAverage mse score:", np.mean(mse_scores).round(6))
+print(f"\nAverage r2 score:", np.mean(r2_scores).round(2))
 print(f"\nCoefficients:\n", f"\n{coefficients_lst[-1]}")
 
 # Stability score across folds.
@@ -201,3 +201,4 @@ plt.gca().invert_yaxis()
 plt.grid(axis='y')
 
 plt.show()
+
